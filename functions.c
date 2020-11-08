@@ -180,7 +180,7 @@ void next_row_to_build(sparsematrix * matrix)/* this adds a value (initialized t
         increase_size_row_prefix_sums(matrix);
     }
     assert(matrix->row_prefix_sums[matrix->nrows+1] == 0);
-    matrix->row_prefix_sums[matrix->nrows] = matrix -> row_prefix_sums[matrix->nrows + 1];
+    matrix->row_prefix_sums[matrix->nrows + 1] = matrix -> row_prefix_sums[matrix->nrows];
     matrix->nrows += 1;
 }
 
@@ -195,11 +195,11 @@ int main(){
     delete(matrix); */
 
     sparsematrix* m3x3 = create_empty(3, 4);
-    // unsigned int current_row = 0;
     insert_value(m3x3, 12.34, 0);
-    insert_value(m3x3, 12.3, 1);
-    // current_row = next_row_to_build(m3x3, 1);
-    // insert_value(m3x3, 12.3, 1, current_row);
+    next_row_to_build(m3x3);
+    insert_value(m3x3, 1.2345, 1);
+    next_row_to_build(m3x3);
+    insert_value(m3x3, 678.123243, 2);
     // current_row = next_row_to_build(m3x3, 2);
     // insert_value(m3x3, 12.3, 0, current_row);
 
