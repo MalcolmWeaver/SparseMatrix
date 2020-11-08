@@ -5,8 +5,8 @@
 
 /*
 typedef struct csr{ // recursive doulbing, then realloc to correct size
-    double* values; // malloc [num_nonzeros]
-    unsigned int* col_idxs; // malloc num_nonzeros
+    double* values; // malloc [nnzs]
+    unsigned int* col_idxs; // malloc nnzs
     unsigned int* row_idxs; // malloc num rows + 1
 } csr;
 
@@ -17,9 +17,9 @@ typedef struct csc{
 } csc;
 */
 typedef struct sparsematrix{
-    unsigned int num_nonzeros; /* first three are how many are initialized */
-    unsigned int num_rows;
-    unsigned int num_cols;
+    unsigned int nnzs; /* first three are how many are initialized */
+    unsigned int nrows; /* index of row that is currently being initialized ie last row */
+    unsigned int ncols;
     unsigned int maxnnzs; /* how many are allocated */
     unsigned int maxprefixsumsz; /* 1 more than num of rows */
     double* values;
@@ -27,7 +27,7 @@ typedef struct sparsematrix{
     unsigned int * row_prefix_sums;
 } sparsematrix; /* 36 bytes */
 
-unsigned int next_row_to_build(sparsematrix * matrix, unsigned int new_row_num);
+void next_row_to_build(sparsematrix * matrix);
 /*Read/write*/
 
 int write_matrix(const char * filename, sparsematrix * matrix); // format determined by ext
@@ -71,9 +71,9 @@ int Test_Matrix_Math(sparsematrix* matrix1, sparsematrix* matrix2, sparsematrix*
 int Test_print_analyze(sparsematrix* matrix, sparsematrix** correct_results);
 
 void test_print_matrix(sparsematrix* matrix){
-    assert(matrix->num_cols == 5);
-    assert(matrix->num_rows == 4);
-    assert(matrix->num_nonzeros == 7);
+    assert(matrix->ncols == 5);
+    assert(matrix->nrows == 4);
+    assert(matrix->nnzs == 7);
     matrix->values[0] = 1;
     matrix->values[1] = 2;
     matrix->values[2] = 3;
@@ -100,11 +100,11 @@ void test_print_matrix(sparsematrix* matrix){
 
 // Build from scratch
 
-sparsematrix* create_empty(unsigned int maxnnzs, int maxprefixsumsz, unsigned int num_nonzeros, int num_rows, unsigned int num_cols){
+sparsematrix* create_empty(unsigned int maxnnzs, int maxprefixsumsz){
     sparsematrix* new = (sparsematrix *) malloc(sizeof(*new));
-    new->num_nonzeros = num_nonzeros;
-    new->num_rows = num_rows; /*this could be set to 0 to avoid printing out shit*/
-    new->num_cols = num_cols;
+    new->nnzs = 0;
+    new->nrows = 0; /*this could be set to 0 to avoid printing out shit*/
+    new->ncols = 0;
     new->maxnnzs = maxnnzs;
     new->values = (double *) calloc(new->maxnnzs, sizeof(*(new->values)));
     new->col_idxs = (unsigned int *) calloc(new->maxnnzs, sizeof(*(new->col_idxs)));
@@ -122,13 +122,13 @@ void * delete(sparsematrix * matrix){ // free pointer
 }
 
 void print(sparsematrix * matrix){ /* add a test to not print zeros */
-    int i, j, all_zeros = 0;
+    int i, j;
     printf("CSR FORMAT: \n\n");
-    for(i = 0; i < matrix->num_rows; ++i){
+    for(i = 0; i < matrix->nrows; ++i){
         /* take a slice from csr.row_idx[i] to csr.row_idx[i+1] */
-        assert(matrix->row_prefix_sums[i] <= matrix->row_prefix_sums[i+1] || !all_zeros); /* correct prefix sum layout */
+        assert(matrix->row_prefix_sums[i] <= matrix->row_prefix_sums[i+1]); /* correct prefix sum layout */
         for(j = (matrix->row_prefix_sums)[i]; j < (matrix->row_prefix_sums)[i+1]; ++j){
-            printf("R: %u C: %u Value: %f   ", i+1, (matrix->col_idxs)[j], matrix->values[j]);
+            printf("R: %u C: %u Value: %f   ", i+1, (matrix->col_idxs)[j] + 1, matrix->values[j]);
         }
         printf("\n");
     }
@@ -144,36 +144,44 @@ void increase_size_row_prefix_sums(sparsematrix* matrix){printf("Not capable of 
 
 
 
-int insert_value(sparsematrix * matrix, double new_value, unsigned int col_num, unsigned int row_idx){ /* column is given as zero indexed. This function merely adds to the end of the list and incs the last prefix sum */
+int insert_value(sparsematrix * matrix, double new_value, unsigned int col_num){ /* column is given as zero indexed. This function merely adds to the end of the list and incs the last prefix sum */
     /*must start at the row where you want the first value */
-    if(!matrix->num_rows){
-        next_row_to_build(matrix, 0);
+    if(!matrix->nrows){
+        next_row_to_build(matrix);
     }
-    ++(matrix->num_nonzeros);
-    if(col_num >= matrix->num_cols){
-        matrix->num_cols = (col_num + 1);
+    if((matrix->nrows + 1) > matrix->maxprefixsumsz){ /* row size of one must have 2 ps, row size of 2 must have at least 3 etc. */
+        increase_size_row_prefix_sums(matrix);
     }
-    if(matrix->num_nonzeros >= matrix->maxnnzs){
+
+    if(col_num >= matrix->ncols){ /* can add a column further out than currently initialiuzed */
+        matrix->ncols = (col_num + 1);
+    }
+
+    ++(matrix->nnzs);
+    if(matrix->nnzs > matrix->maxnnzs){
         increase_size_values(matrix);
         increase_size_col_idxs(matrix);
-    }else{assert(matrix->row_prefix_sums[row_idx + 1] == 0);} /* we can only add to a fresh row */
-    matrix->values[matrix->num_nonzeros - 1] = new_value; /* inserts at the back of list. it could ba valuable to sort if trying to add//multiply */
-    matrix->col_idxs[matrix->num_nonzeros - 1] = col_num;
-    ++(matrix->row_prefix_sums[row_idx + 1]);
+    }
+    else{
+        assert(matrix->row_prefix_sums[matrix->nrows - 1] == 0 || matrix->row_prefix_sums[matrix->nrows - 1]); /* ensure that there is at least one idx before current: prefix sum array must start with a 0 */
+    }
+    matrix->values[matrix->nnzs - 1] = new_value; /* inserts at the back of list. it could ba valuable to sort if trying to add//multiply */
+    matrix->col_idxs[matrix->nnzs - 1] = col_num;
+    ++(matrix->row_prefix_sums[matrix->nrows]);
     return 0;
 }
 /* this function adds a nnz to arrnnzs, the nnz's col to arrcols, and 1 to the last in the cumulitive_row_counts_array
-It updates num_cols if it is the largest(do you allow an empty col?) col_num so far. Compare col_num and matrix-> numcols */
+It updates ncols if it is the largest(do you allow an empty col?) col_num so far. Compare col_num and matrix-> numcols */
 
-unsigned int next_row_to_build(sparsematrix * matrix, unsigned int new_row_num)/* this adds a value (initialized to the previous or 0) to the new cumulitive_row_counts_array
+void next_row_to_build(sparsematrix * matrix)/* this adds a value (initialized to the previous or 0) to the new cumulitive_row_counts_array
 (new mem allocation) */
 {
-    if(matrix->num_rows + 1 >= matrix->maxprefixsumsz){
+    if(matrix->nrows + 1 >= matrix->maxprefixsumsz){
         increase_size_row_prefix_sums(matrix);
     }
-    assert(matrix->row_prefix_sums[new_row_num+1] == 0);
-    matrix->row_prefix_sums[new_row_num + 1] = matrix -> row_prefix_sums[new_row_num];
-    return new_row_num;
+    assert(matrix->row_prefix_sums[matrix->nrows+1] == 0);
+    matrix->row_prefix_sums[matrix->nrows] = matrix -> row_prefix_sums[matrix->nrows + 1];
+    matrix->nrows += 1;
 }
 
 
@@ -186,10 +194,10 @@ int main(){
     print(matrix);
     delete(matrix); */
 
-    sparsematrix* m3x3 = create_empty(3, 4, 0, 0, 0);
-    m3x3 -> maxnnzs = 3;
-    unsigned int current_row = 0;
-    insert_value(m3x3, 12.3, 0, current_row);
+    sparsematrix* m3x3 = create_empty(3, 4);
+    // unsigned int current_row = 0;
+    insert_value(m3x3, 12.34, 0);
+    insert_value(m3x3, 12.3, 1);
     // current_row = next_row_to_build(m3x3, 1);
     // insert_value(m3x3, 12.3, 1, current_row);
     // current_row = next_row_to_build(m3x3, 2);
