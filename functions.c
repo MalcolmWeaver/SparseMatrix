@@ -3,6 +3,8 @@
 #include <time.h>
 #include <assert.h>
 #include <string.h>
+#include <math.h> /* must llink with -lm to have access to sqrt */
+
 
 /*
 typedef struct csr{ // recursive doulbing, then realloc to correct size
@@ -39,6 +41,8 @@ void next_row_to_build(sparsematrix * matrix);
 
 void increase_size_values_and_col_idxs(sparsematrix* matrix);
 void increase_size_row_prefix_sums(sparsematrix* matrix);
+
+void analyze(sparsematrix * matrix); /*The CSR format saves on memory only when NNZ < (m (n − 1) − 1) / 2*/
 
 
 /*Read/write*/
@@ -137,11 +141,12 @@ void * delete(sparsematrix * matrix){ // free pointer
 void print(sparsematrix * matrix){ /* add a test to not print zeros */
     int i, j;
     printf("CSR FORMAT: \n\n");
+    printf("Number of Rows: %u, Number of Columns: %u\n", matrix->nrows, matrix->ncols);
     for(i = 0; i < matrix->nrows; ++i){
         /* take a slice from csr.row_idx[i] to csr.row_idx[i+1] */
         assert(matrix->row_prefix_sums[i] <= matrix->row_prefix_sums[i+1]); /* correct prefix sum layout */
         for(j = (matrix->row_prefix_sums)[i]; j < (matrix->row_prefix_sums)[i+1]; ++j){
-            printf("R: %u C: %u Value: %f   ", i+1, (matrix->col_idxs)[j] + 1, matrix->values[j]);
+            printf("%f ", matrix->values[j]);
         }
         printf("\n");
     }
@@ -209,22 +214,72 @@ void increase_size_values_and_col_idxs(sparsematrix* matrix)
     printf("Reallocated and set new memory to zero for values array.\n");
     matrix->col_idxs = (unsigned int *) realloc(matrix->col_idxs, matrix->maxnnzs * (sizeof(matrix->col_idxs[0])));
     memset((matrix->col_idxs + old_sz*sizeof(matrix->col_idxs[0])), 0, old_sz);
-    printf("Reallocated and set new memory to zero for values array.\n");
+    printf("Reallocated and set new memory to zero for column index array.\n");
 }
 /* uses calloc not malloc */
 
-void increase_size_row_prefix_sums(sparsematrix* matrix){printf("Not capable of increasing ROW_PREFIX_SUMS yet\n");}
+void increase_size_row_prefix_sums(sparsematrix* matrix)
+{
+    unsigned int old_sz = matrix->maxprefixsumsz;
+    matrix->maxprefixsumsz = 2*old_sz;
+    matrix->row_prefix_sums = (unsigned int *) realloc(matrix->row_prefix_sums, matrix->maxprefixsumsz * (sizeof(matrix->row_prefix_sums[0])));
+    memset((matrix->row_prefix_sums + old_sz*sizeof(matrix->row_prefix_sums[0])), 0, old_sz);
+    printf("Reallocated and set new memory to zero for row prefix sum array.\n");
+
+}
+void analyze(sparsematrix * matrix) /*The CSR format saves on memory only when NNZ < (m (n − 1) − 1) / 2*/
+{
+    printf("\nAnalysis of Matrix:\n\n");
+    if(!matrix->nrows || !matrix->ncols || !matrix->nnzs){
+        printf("Matrix has zero elements.\n");
+    }
+    else{/* we will need to call transpose and sort/clean for this to work ideally */
+        double density, row_avg_nnzs, col_avg_nnzs;
+        double min = matrix-> values[0], max = matrix->values[0], sum = 0, variation, stdev, mean, total_nnzs = 0;
+        unsigned int i, j;
+        for(i = 0; i < matrix->nrows; ++i){
+            for(j = matrix->row_prefix_sums[i]; j < matrix->row_prefix_sums[i + 1]; ++j){
+                if(matrix->values[j] < min){min = matrix->values[j];}
+                else if(matrix->values[j] > max){max = matrix->values[j];}
+                sum += matrix->values[j];
+                ++total_nnzs;
+            }
+        }
+
+        assert(total_nnzs == matrix -> row_prefix_sums[matrix->nrows]);
+        assert(total_nnzs);
+        mean = sum /total_nnzs;
+
+        for(i = 0; i < matrix->nrows; ++i){
+            for(j = matrix->row_prefix_sums[i]; j < matrix->row_prefix_sums[i + 1]; ++j){
+                variation += (mean - matrix->values[j]) * (mean - matrix->values[j]);
+            }
+        }
+        density = total_nnzs / (matrix->nrows*matrix->ncols);
+        row_avg_nnzs = total_nnzs / (matrix->nrows);
+        col_avg_nnzs = total_nnzs / (matrix->ncols);
+        stdev = sqrt(variation / total_nnzs);
+        printf("Sparse Matrix Density: %f\n Row Density: %f\n Column Density: %f\n General Mean: %f\n Standard Deviation: %f\n Min: %f\n Max: %f\n", density, row_avg_nnzs, col_avg_nnzs, mean, stdev, min, max);
+        if(total_nnzs < (matrix->nrows*(matrix->ncols - 1) - 1) / 2.0){
+            printf("Using CSR Saves space.\n");
+        }
+        else{printf("Using CSR DOES NOT save space.\n");}
+    }
+}
 
 int main(){
     sparsematrix* matrix = create_empty(7, 5);
     test_print_matrix(matrix);
     print(matrix);
-    delete(matrix); /*
-    matrix = create_empty(0,0,0);
+    analyze(matrix);
+    delete(matrix);
+    matrix = create_empty(0,0);
     print(matrix);
-    delete(matrix); */
+    analyze(matrix);
+    delete(matrix);
 
-    sparsematrix* m3x3 = create_empty(3, 4);
+
+    /*sparsematrix* m3x3 = create_empty(3, 4);
     insert_value(m3x3, 12.34, 0);
     next_row_to_build(m3x3);
     insert_value(m3x3, 1.2345, 1);
@@ -234,13 +289,13 @@ int main(){
     insert_value(m3x3, 3.00, 3);
     print(m3x3);
     insert_value(m3x3, 4, 4);
+    next_row_to_build(m3x3);
     insert_value(m3x3, 3, 5);
+    next_row_to_build(m3x3);
     insert_value(m3x3, 300, 3);
-    // current_row = next_row_to_build(m3x3, 2);
-    // insert_value(m3x3, 12.3, 0, current_row);
-
 
     print(m3x3);
     delete(m3x3);
+    */
     return 0;
 }
