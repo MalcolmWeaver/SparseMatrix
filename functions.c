@@ -159,19 +159,21 @@ void insert_value(sparsematrix * matrix, double new_value, unsigned int col_num)
     if(col_num >= matrix->ncols){ /* can add a column further out than currently initialiuzed */
         matrix->ncols = (col_num + 1);
     }
- /*
-    unsigned int i, col_repeat = -1; // '0xffffffff', used as a boolean as well, but 0 needs to be counted as true
+
+    unsigned int i, col_repeat;
+    char is_repeat = 0;
 
     for(i = matrix->row_prefix_sums[matrix->nrows - 1]; i < matrix->row_prefix_sums[matrix->nrows]; ++i){
         if(matrix->col_idxs[i] == col_num){
-            col_repeat = matrix->col_idxs[i];
+            col_repeat = i;
+            is_repeat = 1;
             printf("Column repeat caught. Replacing.\n");
         }
     }
-    if(col_repeat + 1){
-            matrix-> col_idxs[col_repeat];
+    if(is_repeat){
+            matrix->values[col_repeat] = new_value;
     }
-    else{ */
+    else{
     ++(matrix->nnzs);
     if(matrix->nnzs > matrix->maxnnzs){
         increase_size_values_and_col_idxs(matrix);
@@ -183,6 +185,7 @@ void insert_value(sparsematrix * matrix, double new_value, unsigned int col_num)
     matrix->col_idxs[matrix->nnzs - 1] = col_num;
     ++(matrix->row_prefix_sums[matrix->nrows]);
 
+}
 }
 /* this function adds a nnz to arrnnzs, the nnz's col to arrcols, and 1 to the last in the cumulitive_row_counts_array
 It updates ncols if it is the largest(do you allow an empty col?) col_num so far. Compare col_num and matrix-> numcols */
@@ -232,7 +235,7 @@ int main(){
     print(m3x3);
     insert_value(m3x3, 4, 4);
     insert_value(m3x3, 3, 5);
-    insert_value(m3x3, 5, 0);
+    insert_value(m3x3, 300, 3);
     // current_row = next_row_to_build(m3x3, 2);
     // insert_value(m3x3, 12.3, 0, current_row);
 
