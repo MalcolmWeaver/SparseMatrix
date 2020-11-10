@@ -45,22 +45,31 @@ void increase_size_row_prefix_sums(sparsematrix* matrix);
 void analyze(sparsematrix * matrix); /*The CSR format saves on memory only when NNZ < (m (n − 1) − 1) / 2*/
 
 
-/*Read/write*/
-
-int write_matrix(const char * filename, sparsematrix * matrix); // format determined by ext
-int read_matrix(const char * filename, sparsematrix * matrix);
-
+sparsematrix * scalar_multiply(sparsematrix * matrix, double scalar_multiplier); /* Assume overflow of doubles does not occur */
+sparsematrix * scalar_divide(sparsematrix * matrix, double scalar_divisor); /* error check for 0. also, could be same func as mul */
 
 /* Matrix "Math" */
-
-sparsematrix * scalar_multiply(sparsematrix * matrix, double scalar_multiplier); /* error check for overflow? */
-sparsematrix * scalar_divide(sparsematrix * matrix, double scalar_divider); /* error check for 0. also, could be same func as mul */
 /* not sure if the following 3 are actually a thing (broadcasting?) */
 sparsematrix * scalar_add(sparsematrix * matrix, double scalar_summand); /* add to a given location */
 sparsematrix * scalar_matrixminus(sparsematrix * matrix, double scalar_substrahend); /* could be same func as add */
 sparsematrix * scalar_minusmatrix(sparsematrix * matrix, double scalar_minuend); /* could be add (multiply by -1) minuend */
 
-sparsematrix * empty(sparsematrix * matrix);
+void * empty(sparsematrix * matrix);
+
+/*Read/write*/
+
+int write_matrix(const char * filename, sparsematrix * matrix); // format determined by ext
+int read_matrix(const char * filename, sparsematrix * matrix);
+
+/* not required */
+
+void sort_by_col_idx(sparsematrix* matrix); /* could also remove zeros */
+
+sparsematrix* copy(sparsematrix* matrix);
+
+/* Other Funcs */
+
+
 
 sparsematrix * transpose(sparsematrix * matrix);
 /* THIS IS THE MOST IMPORTANT FUNCTION. IT WILL BE USED TO MULTIPLY. WE WILL STORE A SEPERATE TRANSPOSED MATRIX. */
@@ -70,14 +79,9 @@ sparsematrix * matrix_multiply(sparsematrix * matrix_factor1, sparsematrix * mat
 sparsematrix * matrix_add(sparsematrix * matrix_summand1, sparsematrix * matrix_summand2); /* assert same sizes */
 sparsematrix * matrix_subtract(sparsematrix * matrix_minuend, sparsematrix * matrix_substrahend); // could be comp of add  and mul -1
 
-/* Other Funcs */
 
 
-void analyze(sparsematrix * matrix); /*The CSR format saves on memory only when NNZ < (m (n − 1) − 1) / 2*/
 
-/* not required */
-
-void sort_by_col_idx(sparsematrix* matrix); /* could also remove zeros */
 
 /* Test Funcs */
 
@@ -210,10 +214,10 @@ void increase_size_values_and_col_idxs(sparsematrix* matrix)
 {   unsigned int old_sz = matrix->maxnnzs;
     matrix->maxnnzs = 2*old_sz;
     matrix->values = (double *) realloc(matrix->values, matrix->maxnnzs * (sizeof(matrix->values[0])));
-    memset((matrix->values + old_sz*sizeof(matrix->values[0])), 0, old_sz);
+    memset((matrix->values + old_sz*sizeof(matrix->values[0])), 0, old_sz*sizeof(matrix->values[0]));
     printf("Reallocated and set new memory to zero for values array.\n");
     matrix->col_idxs = (unsigned int *) realloc(matrix->col_idxs, matrix->maxnnzs * (sizeof(matrix->col_idxs[0])));
-    memset((matrix->col_idxs + old_sz*sizeof(matrix->col_idxs[0])), 0, old_sz);
+    memset((matrix->col_idxs + old_sz*sizeof(matrix->col_idxs[0])), 0, old_sz*sizeof(matrix->col_idxs[0]));
     printf("Reallocated and set new memory to zero for column index array.\n");
 }
 /* uses calloc not malloc */
@@ -223,7 +227,7 @@ void increase_size_row_prefix_sums(sparsematrix* matrix)
     unsigned int old_sz = matrix->maxprefixsumsz;
     matrix->maxprefixsumsz = 2*old_sz;
     matrix->row_prefix_sums = (unsigned int *) realloc(matrix->row_prefix_sums, matrix->maxprefixsumsz * (sizeof(matrix->row_prefix_sums[0])));
-    memset((matrix->row_prefix_sums + old_sz*sizeof(matrix->row_prefix_sums[0])), 0, old_sz);
+    memset((matrix->row_prefix_sums + old_sz*sizeof(matrix->row_prefix_sums[0])), 0, old_sz*sizeof(matrix->row_prefix_sums[0]));
     printf("Reallocated and set new memory to zero for row prefix sum array.\n");
 
 }
@@ -267,17 +271,100 @@ void analyze(sparsematrix * matrix) /*The CSR format saves on memory only when N
     }
 }
 
+sparsematrix * scalar_multiply(sparsematrix * matrix, double scalar_multiplier){
+    /*assuming no overflow */
+    for(int i = 0; i < matrix->nnzs; ++i){
+        matrix->values[i] *= scalar_multiplier;
+    }
+    return matrix;
+} /*check for overflow (bits 52-63)? */
+
+sparsematrix * scalar_divide(sparsematrix * matrix, double scalar_divisor){
+    if(scalar_divisor == 0){
+        printf("Invalid divisor. Returning NULL.");
+        return NULL;
+    }
+    else{
+        for(int i = 0; i < matrix->nnzs; ++i){
+            matrix->values[i] /= scalar_divisor;
+        }
+        return matrix;
+    }
+} /* error check for 0. also, could be same func as mul */
+
+/* broadcast to nnzs, check overflow? could also check if sum is less than the bigger of the two */
+sparsematrix * scalar_add(sparsematrix * matrix, double scalar_summand){
+    /*assuming no overflow */
+    for(int i = 0; i < matrix->nnzs; ++i){
+        matrix->values[i] += scalar_summand;
+    }
+    return matrix;
+
+}
+sparsematrix * scalar_matrixminus(sparsematrix * matrix, double scalar_substrahend){
+    /*assuming no overflow */
+    for(int i = 0; i < matrix->nnzs; ++i){
+        matrix->values[i] -= scalar_substrahend;
+    }
+    return matrix;
+
+}
+sparsematrix * scalar_minusmatrix(sparsematrix * matrix, double scalar_minuend){
+    /*assuming no overflow */
+    for(int i = 0; i < matrix->nnzs; ++i){
+        matrix->values[i] = scalar_minuend - matrix->values[i];
+    }
+    return matrix;
+
+}
+
+sparsematrix * copy(sparsematrix * matrix){
+    int i;
+    sparsematrix* new = (sparsematrix *) malloc(sizeof(*new));
+    new->nnzs = matrix->nnzs;
+    new->nrows = matrix->nrows; /*this could be set to 0 to avoid printing out shit*/
+    new->ncols = matrix->ncols;
+    new->maxnnzs = matrix->maxnnzs;
+    new->values = (double *) calloc(new->maxnnzs, sizeof(*(new->values)));
+    new->col_idxs = (unsigned int *) calloc(new->maxnnzs, sizeof(*(new->col_idxs)));
+    for(i = 0; i < new->nnzs; ++i){
+        new->values[i] = matrix->values[i];
+        new->col_idxs[i] = matrix->col_idxs[i];
+    }
+    new->maxprefixsumsz = matrix->maxprefixsumsz;
+    new->row_prefix_sums = (unsigned int*) calloc(1+new->maxprefixsumsz, sizeof(*(new->row_prefix_sums)));
+    for(i = 0; i < new->maxprefixsumsz; ++i){
+        new->row_prefix_sums[i] = matrix->row_prefix_sums[i];
+    }
+    /* here we malloc new itself, and within new are 3 mallocs to free */
+    return new;
+}
+
+void * empty(sparsematrix * matrix){
+    memset(matrix->values, 0, matrix->nnzs*sizeof(matrix->values[0]));
+    memset(matrix->col_idxs, 0, matrix->nnzs*sizeof(matrix->col_idxs[0]));
+    memset(matrix->row_prefix_sums, 0, matrix->maxprefixsumsz*sizeof(matrix->row_prefix_sums[0]));
+    printf("Memory for Matrix set to 0s.\n");
+}
+
 int main(){
     sparsematrix* matrix = create_empty(7, 5);
     test_print_matrix(matrix);
+    matrix = scalar_divide(matrix, 11);
+    matrix = scalar_minusmatrix(matrix, 100);
     print(matrix);
+    sparsematrix * new = copy(matrix);
+    empty(new);
+    print(new);
     analyze(matrix);
     delete(matrix);
+
+/*
     matrix = create_empty(0,0);
     print(matrix);
     analyze(matrix);
     delete(matrix);
-
+*/
 
     /*sparsematrix* m3x3 = create_empty(3, 4);
     insert_value(m3x3, 12.34, 0);
