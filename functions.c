@@ -19,16 +19,23 @@ typedef struct csc{
     unsigned int* col_idxs;
 } csc;
 */
+typedef struct value_with_col{
+    double value;
+    unsigned int col_idx;
+} val_col;
+
+
 typedef struct sparsematrix{
     unsigned int nnzs; /* first three are how many are initialized */
     unsigned int nrows; /* index of row that is currently being initialized ie last row */
     unsigned int ncols;
     unsigned int maxnnzs; /* how many are allocated */
     unsigned int maxprefixsumsz; /* 1 more than num of rows */
-    double* values;
-    unsigned int * col_idxs;
     unsigned int * row_prefix_sums;
+    val_col* val_col_array;
 } sparsematrix; /* 36 bytes */
+
+
 
 
 
@@ -54,7 +61,16 @@ sparsematrix * scalar_add(sparsematrix * matrix, double scalar_summand); /* add 
 sparsematrix * scalar_matrixminus(sparsematrix * matrix, double scalar_substrahend); /* could be same func as add */
 sparsematrix * scalar_minusmatrix(sparsematrix * matrix, double scalar_minuend); /* could be add (multiply by -1) minuend */
 
+/* Other Funcs */
 void * empty(sparsematrix * matrix);
+sparsematrix* copy(sparsematrix* matrix);
+
+
+sparsemtrxzip* convert_to_zip(sparsematrix* matrix);
+sparsematrix* convert_from_zip(sparsemtrxzip* zip);
+void sort_by_col_idx(sparsematrix* matrix); /* could also remove zeros */
+
+
 
 /*Read/write*/
 
@@ -65,11 +81,10 @@ int read_matrix(const char * filename, sparsematrix * matrix);
 
 void sort_by_col_idx(sparsematrix* matrix); /* could also remove zeros */
 
-sparsematrix* copy(sparsematrix* matrix);
 
 /* Other Funcs */
 
-
+void remove_zeros(sparsematrix* matrix);
 
 sparsematrix * transpose(sparsematrix * matrix);
 /* THIS IS THE MOST IMPORTANT FUNCTION. IT WILL BE USED TO MULTIPLY. WE WILL STORE A SEPERATE TRANSPOSED MATRIX. */
@@ -95,21 +110,21 @@ void test_print_matrix(sparsematrix* matrix){
     matrix->ncols = 5;
     matrix->nrows = 4;
     matrix->nnzs = 7;
-    matrix->values[0] = 1;
-    matrix->values[1] = 2;
-    matrix->values[2] = 3;
-    matrix->values[3] = 4;
-    matrix->values[4] = 5;
-    matrix->values[5] = 6;
-    matrix->values[6] = 7;
+    matrix->val_col_array[0].value = 1;
+    matrix->val_col_array[1].value = 2;
+    matrix->val_col_array[2].value = 3;
+    matrix->val_col_array[3].value = 4;
+    matrix->val_col_array[4].value = 5;
+    matrix->val_col_array[5].value = 6;
+    matrix->val_col_array[6].value = 7;
 
-    matrix->col_idxs[0] = 0;
-    matrix->col_idxs[1] = 3;
-    matrix->col_idxs[2] = 1;
-    matrix->col_idxs[3] = 4;
-    matrix->col_idxs[4] = 2;
-    matrix->col_idxs[5] = 0;
-    matrix->col_idxs[6] = 3;
+    matrix->val_col_array[0].col_idx[0] = 0;
+    matrix->val_col_array[1].col_idx[1] = 3;
+    matrix->val_col_array[2].col_idx[2] = 1;
+    matrix->val_col_array[3].col_idx[3] = 4;
+    matrix->val_col_array[4].col_idx[4] = 2;
+    matrix->val_col_array[5].col_idx[5] = 0;
+    matrix->val_col_array[6].col_idx[6] = 3;
 
     matrix->row_prefix_sums[0] = 0;
     matrix->row_prefix_sums[1] = 2;
@@ -127,8 +142,8 @@ sparsematrix* create_empty(unsigned int maxnnzs, int maxprefixsumsz){
     new->nrows = 0; /*this could be set to 0 to avoid printing out shit*/
     new->ncols = 0;
     new->maxnnzs = maxnnzs;
-    new->values = (double *) calloc(new->maxnnzs, sizeof(*(new->values)));
-    new->col_idxs = (unsigned int *) calloc(new->maxnnzs, sizeof(*(new->col_idxs)));
+    new->val_col_array = (val_col *) calloc(new->maxnnzs, sizeof(*(new->val_col_array)));
+    new->val_col_array.col_idx = (unsigned int *) calloc(new->maxnnzs, sizeof(*(new->val_col_array.col_idx)));
     new->maxprefixsumsz = maxprefixsumsz;
     new->row_prefix_sums = (unsigned int*) calloc(1+new->maxprefixsumsz, sizeof(*(new->row_prefix_sums)));
     /* here we malloc new itself, and within new are 3 mallocs to free */
@@ -136,8 +151,8 @@ sparsematrix* create_empty(unsigned int maxnnzs, int maxprefixsumsz){
 }
 
 void * delete(sparsematrix * matrix){ // free pointer
-    free(matrix->values);
-    free(matrix->col_idxs);
+    free(matrix->val_col_array);
+    free(matrix->val_col_array.col_idx);
     free(matrix->row_prefix_sums);
     free(matrix);
 }
@@ -150,7 +165,7 @@ void print(sparsematrix * matrix){ /* add a test to not print zeros */
         /* take a slice from csr.row_idx[i] to csr.row_idx[i+1] */
         assert(matrix->row_prefix_sums[i] <= matrix->row_prefix_sums[i+1]); /* correct prefix sum layout */
         for(j = (matrix->row_prefix_sums)[i]; j < (matrix->row_prefix_sums)[i+1]; ++j){
-            printf("%f ", matrix->values[j]);
+            printf("%f ", matrix->val_col_array[j].value);
         }
         printf("\n");
     }
@@ -173,14 +188,14 @@ void insert_value(sparsematrix * matrix, double new_value, unsigned int col_num)
     char is_repeat = 0;
 
     for(i = matrix->row_prefix_sums[matrix->nrows - 1]; i < matrix->row_prefix_sums[matrix->nrows]; ++i){
-        if(matrix->col_idxs[i] == col_num){
+        if(matrix->val_col_array[i].col_idxi] == col_num){
             col_repeat = i;
             is_repeat = 1;
             printf("Column repeat caught. Replacing.\n");
         }
     }
     if(is_repeat){
-            matrix->values[col_repeat] = new_value;
+            matrix->val_col_array[col_repeat].value = new_value;
     }
     else{
     ++(matrix->nnzs);
@@ -190,8 +205,8 @@ void insert_value(sparsematrix * matrix, double new_value, unsigned int col_num)
     else{
         assert(matrix->row_prefix_sums[matrix->nrows - 1] == 0 || matrix->row_prefix_sums[matrix->nrows - 1]); /* ensure that there is at least one idx before current: prefix sum array must start with a 0 */
     }
-    matrix->values[matrix->nnzs - 1] = new_value; /* inserts at the back of list. it could ba valuable to sort if trying to add//multiply */
-    matrix->col_idxs[matrix->nnzs - 1] = col_num;
+    matrix->val_col_array[matrix->nnzs - 1].value = new_value; /* inserts at the back of list. it could ba valuable to sort if trying to add//multiply */
+    matrix->val_col_array[matrix->nnzs - 1].col_idx = col_num;
     ++(matrix->row_prefix_sums[matrix->nrows]);
 
 }
@@ -213,11 +228,11 @@ void next_row_to_build(sparsematrix * matrix)/* this adds a value (initialized t
 void increase_size_values_and_col_idxs(sparsematrix* matrix)
 {   unsigned int old_sz = matrix->maxnnzs;
     matrix->maxnnzs = 2*old_sz;
-    matrix->values = (double *) realloc(matrix->values, matrix->maxnnzs * (sizeof(matrix->values[0])));
-    memset((matrix->values + old_sz*sizeof(matrix->values[0])), 0, old_sz*sizeof(matrix->values[0]));
+    matrix->val_col_array = (val_col*) realloc(matrix->val_col_array, matrix->maxnnzs * (sizeof(matrix->val_col_array[0].value)));
+    memset((matrix->val_col_array + old_sz*sizeof(matrix->val_col_array[0].value)), 0, old_sz*sizeof(matrix->val_col_array[0].value));
     printf("Reallocated and set new memory to zero for values array.\n");
-    matrix->col_idxs = (unsigned int *) realloc(matrix->col_idxs, matrix->maxnnzs * (sizeof(matrix->col_idxs[0])));
-    memset((matrix->col_idxs + old_sz*sizeof(matrix->col_idxs[0])), 0, old_sz*sizeof(matrix->col_idxs[0]));
+    matrix->val_col_array.col_idx = (unsigned int *) realloc(matrix->val_col_array.col_idx, matrix->maxnnzs * (sizeof(matrix->val_col_array[0].col_idx)));
+    memset((matrix->val_col_array.col_idx + old_sz*sizeof(matrix->val_col_array[0].col_idx)), 0, old_sz*sizeof(matrix->val_col_array[0].col_idx));
     printf("Reallocated and set new memory to zero for column index array.\n");
 }
 /* uses calloc not malloc */
@@ -239,13 +254,13 @@ void analyze(sparsematrix * matrix) /*The CSR format saves on memory only when N
     }
     else{/* we will need to call transpose and sort/clean for this to work ideally */
         double density, row_avg_nnzs, col_avg_nnzs;
-        double min = matrix-> values[0], max = matrix->values[0], sum = 0, variation, stdev, mean, total_nnzs = 0;
+        double min = matrix-> values[0], max = matrix->val_col_array[0].value, sum = 0, variation, stdev, mean, total_nnzs = 0;
         unsigned int i, j;
         for(i = 0; i < matrix->nrows; ++i){
             for(j = matrix->row_prefix_sums[i]; j < matrix->row_prefix_sums[i + 1]; ++j){
-                if(matrix->values[j] < min){min = matrix->values[j];}
-                else if(matrix->values[j] > max){max = matrix->values[j];}
-                sum += matrix->values[j];
+                if(matrix->val_col_array[j].value < min){min = matrix->val_col_array[j].value;}
+                else if(matrix->val_col_array[j].value > max){max = matrix->val_col_array[j].value;}
+                sum += matrix->val_col_array[j].value;
                 ++total_nnzs;
             }
         }
@@ -256,7 +271,7 @@ void analyze(sparsematrix * matrix) /*The CSR format saves on memory only when N
 
         for(i = 0; i < matrix->nrows; ++i){
             for(j = matrix->row_prefix_sums[i]; j < matrix->row_prefix_sums[i + 1]; ++j){
-                variation += (mean - matrix->values[j]) * (mean - matrix->values[j]);
+                variation += (mean - matrix->val_col_array[j].value) * (mean - matrix->val_col_array[j].value);
             }
         }
         density = total_nnzs / (matrix->nrows*matrix->ncols);
@@ -274,7 +289,7 @@ void analyze(sparsematrix * matrix) /*The CSR format saves on memory only when N
 sparsematrix * scalar_multiply(sparsematrix * matrix, double scalar_multiplier){
     /*assuming no overflow */
     for(int i = 0; i < matrix->nnzs; ++i){
-        matrix->values[i] *= scalar_multiplier;
+        matrix->val_col_array[i].value *= scalar_multiplier;
     }
     return matrix;
 } /*check for overflow (bits 52-63)? */
@@ -286,7 +301,7 @@ sparsematrix * scalar_divide(sparsematrix * matrix, double scalar_divisor){
     }
     else{
         for(int i = 0; i < matrix->nnzs; ++i){
-            matrix->values[i] /= scalar_divisor;
+            matrix->val_col_array[i].value /= scalar_divisor;
         }
         return matrix;
     }
@@ -296,7 +311,7 @@ sparsematrix * scalar_divide(sparsematrix * matrix, double scalar_divisor){
 sparsematrix * scalar_add(sparsematrix * matrix, double scalar_summand){
     /*assuming no overflow */
     for(int i = 0; i < matrix->nnzs; ++i){
-        matrix->values[i] += scalar_summand;
+        matrix->val_col_array[i].value += scalar_summand;
     }
     return matrix;
 
@@ -304,7 +319,7 @@ sparsematrix * scalar_add(sparsematrix * matrix, double scalar_summand){
 sparsematrix * scalar_matrixminus(sparsematrix * matrix, double scalar_substrahend){
     /*assuming no overflow */
     for(int i = 0; i < matrix->nnzs; ++i){
-        matrix->values[i] -= scalar_substrahend;
+        matrix->val_col_array[i].value -= scalar_substrahend;
     }
     return matrix;
 
@@ -312,7 +327,7 @@ sparsematrix * scalar_matrixminus(sparsematrix * matrix, double scalar_substrahe
 sparsematrix * scalar_minusmatrix(sparsematrix * matrix, double scalar_minuend){
     /*assuming no overflow */
     for(int i = 0; i < matrix->nnzs; ++i){
-        matrix->values[i] = scalar_minuend - matrix->values[i];
+        matrix->val_col_array[i].value = scalar_minuend - matrix->val_col_array[i].value;
     }
     return matrix;
 
@@ -325,11 +340,11 @@ sparsematrix * copy(sparsematrix * matrix){
     new->nrows = matrix->nrows; /*this could be set to 0 to avoid printing out shit*/
     new->ncols = matrix->ncols;
     new->maxnnzs = matrix->maxnnzs;
-    new->values = (double *) calloc(new->maxnnzs, sizeof(*(new->values)));
-    new->col_idxs = (unsigned int *) calloc(new->maxnnzs, sizeof(*(new->col_idxs)));
+    new->val_col_array = (val_col *) calloc(new->maxnnzs, sizeof(*(new->val_col_array)));
+    new->val_col_array.col_idx = (unsigned int *) calloc(new->maxnnzs, sizeof(*(new->val_col_array.col_idx)));
     for(i = 0; i < new->nnzs; ++i){
-        new->values[i] = matrix->values[i];
-        new->col_idxs[i] = matrix->col_idxs[i];
+        new->val_col_array[i].value = matrix->val_col_array[i].value;
+        new->val_col_array[i].col_idx = matrix->val_col_array[i].col_idx;
     }
     new->maxprefixsumsz = matrix->maxprefixsumsz;
     new->row_prefix_sums = (unsigned int*) calloc(1+new->maxprefixsumsz, sizeof(*(new->row_prefix_sums)));
@@ -341,11 +356,12 @@ sparsematrix * copy(sparsematrix * matrix){
 }
 
 void * empty(sparsematrix * matrix){
-    memset(matrix->values, 0, matrix->nnzs*sizeof(matrix->values[0]));
-    memset(matrix->col_idxs, 0, matrix->nnzs*sizeof(matrix->col_idxs[0]));
+    memset(matrix->val_col_array, 0, matrix->nnzs*sizeof(matrix->val_col_array[0].value));
+    memset(matrix->val_col_array.col_idx, 0, matrix->nnzs*sizeof(matrix->val_col_array[].col_idx0]));
     memset(matrix->row_prefix_sums, 0, matrix->maxprefixsumsz*sizeof(matrix->row_prefix_sums[0]));
     printf("Memory for Matrix set to 0s.\n");
 }
+
 
 int main(){
     sparsematrix* matrix = create_empty(7, 5);
